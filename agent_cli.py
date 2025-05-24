@@ -8,6 +8,7 @@ the durable background agent for MCP server knowledge accumulation.
 
 import click
 import json
+import os
 from pathlib import Path
 
 from agent.knowledge_agent import KnowledgeAgent
@@ -18,12 +19,16 @@ from agent.knowledge_agent import KnowledgeAgent
               help='Directory to store knowledge files')
 @click.option('--checkpoint-file', default='.agent_checkpoint.json',
               help='Checkpoint file path')
+@click.option('--openai-api-key', 
+              default=lambda: os.environ.get("OPENAI_API_KEY"), 
+              help='OpenAI API key (or set OPENAI_API_KEY env var)')
 @click.pass_context
-def cli(ctx, knowledge_dir, checkpoint_file):
+def cli(ctx, knowledge_dir, checkpoint_file, openai_api_key):
     """Knowledge Agent CLI - Autonomous MCP Server Knowledge Accumulation."""
     ctx.ensure_object(dict)
     ctx.obj['knowledge_dir'] = knowledge_dir
     ctx.obj['checkpoint_file'] = checkpoint_file
+    ctx.obj['openai_api_key'] = openai_api_key
 
 
 @cli.command()
@@ -31,18 +36,23 @@ def cli(ctx, knowledge_dir, checkpoint_file):
               help='Number of cycles to run')
 @click.option('--delay', '-d', default=0.0, type=float,
               help='Delay between cycles in seconds')
+@click.option('--prompt', '-p', 
+              default="Identify key knowledge gaps about MCP servers",
+              help='Prompt for knowledge gap identification')
 @click.pass_context
-def run(ctx, cycles, delay):
+def run(ctx, cycles, delay, prompt):
     """Run the knowledge agent for specified cycles."""
     agent = KnowledgeAgent(
         knowledge_dir=ctx.obj['knowledge_dir'],
-        checkpoint_file=ctx.obj['checkpoint_file']
+        checkpoint_file=ctx.obj['checkpoint_file'],
+        openai_api_key=ctx.obj['openai_api_key']
     )
     
     click.echo(f"Starting knowledge agent: {cycles} cycles with {delay}s delay")
+    click.echo(f"Using prompt: '{prompt}'")
     
     try:
-        results = agent.run(cycles=cycles, delay=delay)
+        results = agent.run(cycles=cycles, delay=delay, prompt=prompt)
         
         click.echo("\n=== Agent Run Summary ===")
         total_files = sum(r.get('files_created', 0) for r in results)
@@ -89,10 +99,13 @@ def status(ctx):
 
 
 @cli.command()
+@click.option('--prompt', '-p', 
+              default="Identify key knowledge gaps about MCP servers",
+              help='Prompt for knowledge gap identification')
 @click.pass_context 
-def resume(ctx):
+def resume(ctx, prompt):
     """Resume agent from last checkpoint (alias for run with 1 cycle)."""
-    ctx.invoke(run, cycles=1, delay=0.0)
+    ctx.invoke(run, cycles=1, delay=0.0, prompt=prompt)
 
 
 @cli.command()

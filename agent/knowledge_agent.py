@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import openai
 from pydantic import BaseModel
 
 
@@ -44,17 +45,27 @@ class KnowledgeAgent:
     
     def __init__(self, 
                  knowledge_dir: str = "knowledge",
-                 checkpoint_file: str = ".agent_checkpoint.json"):
+                 checkpoint_file: str = ".agent_checkpoint.json",
+                 openai_api_key: Optional[str] = None):
         """
         Initialize the Knowledge Agent.
         
         Args:
             knowledge_dir: Directory to store knowledge markdown files
             checkpoint_file: File to store agent checkpoint state
+            openai_api_key: Optional API key for OpenAI. If not provided, will use OPENAI_API_KEY env var
         """
         self.knowledge_dir = Path(knowledge_dir)
         self.checkpoint_file = Path(checkpoint_file)
         self.logger = self._setup_logging()
+        
+        # Configure OpenAI client
+        self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
+        if self.openai_api_key:
+            self.client = openai.OpenAI(api_key=self.openai_api_key)
+        else:
+            self.client = None
+            self.logger.warning("No OpenAI API key provided. LLM features will be disabled.")
         
         # Ensure knowledge directory exists
         self.knowledge_dir.mkdir(exist_ok=True)
@@ -107,18 +118,70 @@ class KnowledgeAgent:
         except Exception as e:
             self.logger.error(f"Failed to save checkpoint: {e}")
     
-    def _identify_knowledge_gaps(self) -> List[str]:
+    def _identify_knowledge_gaps(self, prompt: str = "Identify knowledge gaps about MCP servers") -> List[str]:
         """
-        Identify gaps in current knowledge base.
+        Identify gaps in current knowledge base using LLM.
         
-        This is a placeholder implementation that can be replaced with
-        real gap analysis logic in the future.
-        
+        Args:
+            prompt: Prompt to guide the knowledge gap identification
+            
         Returns:
             List of identified knowledge gaps
         """
-        # Placeholder logic - identify gaps based on existing files
+        # Get existing files and their content
         existing_files = list(self.knowledge_dir.glob("*.md"))
+        existing_file_content = {}
+        
+        for file_path in existing_files:
+            try:
+                with open(file_path, 'r') as f:
+                    existing_file_content[file_path.name] = f.read()
+            except Exception as e:
+                self.logger.warning(f"Failed to read {file_path}: {e}")
+        
+        if self.client:
+            # Use LLM to identify knowledge gaps
+            try:
+                # Build the prompt by including existing knowledge file names
+                file_list = "\n".join([f"- {name}" for name in existing_file_content.keys()])
+                
+                # Create the system message with existing knowledge context
+                system_message = f"""You are a knowledge management system for MCP (Model Context Protocol) servers.
+Your task is to identify gaps in the current knowledge base.
+Current knowledge files: {file_list if existing_file_content else 'No files yet'}
+
+Review the existing content and identify 3-5 specific areas where knowledge is missing or incomplete.
+Focus on important technical aspects of MCP servers that would be valuable to document."""
+
+                # Call the OpenAI API
+                response = self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=300
+                )
+                
+                # Extract the knowledge gaps from the response
+                gaps_text = response.choices[0].message.content.strip()
+                
+                # Split into individual gaps (assuming the LLM returns a list or numbered items)
+                # This is a simple approach - may need refinement based on actual response format
+                gaps = [line.strip().strip('*-1234567890.').strip() 
+                       for line in gaps_text.split('\n') 
+                       if line.strip() and not line.strip().startswith('#')]
+                
+                self.logger.info(f"LLM identified {len(gaps)} knowledge gaps")
+                return gaps
+                
+            except Exception as e:
+                self.logger.error(f"Error using LLM for gap identification: {e}")
+                # Fall back to placeholder implementation
+        
+        # Placeholder logic when LLM is not available or fails
+        self.logger.info("Using fallback gap identification logic")
         
         # Sample gap identification - look for missing topics
         expected_topics = [
@@ -144,10 +207,7 @@ class KnowledgeAgent:
     
     def _gather_information(self, gap: str) -> Dict[str, Any]:
         """
-        Gather information for a specific knowledge gap.
-        
-        This is a placeholder implementation that can be replaced with
-        real web search, API calls, or other information gathering methods.
+        Gather information for a specific knowledge gap using LLM.
         
         Args:
             gap: The knowledge gap to address
@@ -155,8 +215,55 @@ class KnowledgeAgent:
         Returns:
             Dictionary containing gathered information
         """
-        # Placeholder implementation
         timestamp = datetime.now().isoformat()
+        
+        if self.client:
+            try:
+                # Create a system message with instructions for knowledge generation
+                system_message = """You are an expert knowledge base creator for MCP (Model Context Protocol) servers.
+Your task is to generate comprehensive markdown content to fill a knowledge gap.
+Create detailed, technical, but accessible content that would be valuable to developers and architects.
+
+Your response should:
+1. Have a clear, descriptive title (H1)
+2. Include multiple sections with headings (H2, H3)
+3. Provide technical details, examples, and where applicable, code snippets
+4. Be comprehensive but concise (400-800 words)
+5. Focus on factual information
+
+Format as markdown with proper headings, lists, code blocks, etc."""
+
+                # Call the OpenAI API
+                response = self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": f"Create knowledge content about: {gap}"}
+                    ],
+                    temperature=0.5,
+                    max_tokens=1000
+                )
+                
+                # Extract the content from the response
+                content_text = response.choices[0].message.content.strip()
+                
+                # Extract title from the first line if it starts with #
+                lines = content_text.split('\n')
+                title = lines[0].strip('# ') if lines and lines[0].startswith('#') else gap
+                
+                return {
+                    "title": title,
+                    "content": content_text,
+                    "source": "llm_generated",
+                    "gathered_at": timestamp
+                }
+                
+            except Exception as e:
+                self.logger.error(f"Error using LLM for content generation: {e}")
+                # Fall back to placeholder implementation
+                
+        # Placeholder implementation when LLM is not available or fails
+        self.logger.info("Using fallback content generation logic")
         
         # Generate placeholder content based on the gap
         if "mcp_server_architecture" in gap.lower():
@@ -280,10 +387,13 @@ Information about this topic would be gathered from various sources including:
             self.logger.error(f"Failed to write knowledge file: {e}")
             raise
     
-    def run_cycle(self) -> Dict[str, Any]:
+    def run_cycle(self, prompt: str = "Identify key knowledge gaps about MCP servers") -> Dict[str, Any]:
         """
         Run a single agent cycle.
         
+        Args:
+            prompt: The prompt to guide knowledge gap identification
+            
         Returns:
             Dictionary containing cycle results
         """
@@ -296,7 +406,7 @@ Information about this topic would be gathered from various sources including:
         
         try:
             # Step 1: Identify knowledge gaps
-            gaps = self._identify_knowledge_gaps()
+            gaps = self._identify_knowledge_gaps(prompt=prompt)
             self.checkpoint.gaps_identified.extend(gaps)
             self.logger.info(f"Identified {len(gaps)} knowledge gaps")
             
@@ -340,13 +450,14 @@ Information about this topic would be gathered from various sources including:
             self.logger.error(f"Cycle {self.checkpoint.cycle_count} failed: {e}")
             raise
     
-    def run(self, cycles: int = 1, delay: float = 0.0) -> List[Dict[str, Any]]:
+    def run(self, cycles: int = 1, delay: float = 0.0, prompt: str = "Identify key knowledge gaps about MCP servers") -> List[Dict[str, Any]]:
         """
         Run the agent for specified number of cycles.
         
         Args:
             cycles: Number of cycles to run
             delay: Delay between cycles in seconds
+            prompt: Prompt to guide knowledge gap identification
             
         Returns:
             List of cycle results
@@ -361,7 +472,7 @@ Information about this topic would be gathered from various sources including:
                     self.logger.info(f"Waiting {delay}s before next cycle...")
                     time.sleep(delay)
                 
-                cycle_result = self.run_cycle()
+                cycle_result = self.run_cycle(prompt=prompt)
                 results.append(cycle_result)
                 
         except KeyboardInterrupt:
