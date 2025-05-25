@@ -1,0 +1,9 @@
+version: '3'
+services:
+  brave-search:
+    image: mcp/brave-search
+    ports:
+      - "8080:8080"  # Assuming the server runs on port 8080
+    restart: unless-stopped
+    volumes:
+      - ./mcp_data:/data  # Optional: for data persistence if needed

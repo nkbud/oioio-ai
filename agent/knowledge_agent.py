@@ -3,7 +3,8 @@ Durable Background Knowledge Agent for MCP Server Knowledge Accumulation.
 
 This module implements a background agent that can autonomously gather and
 organize knowledge about MCP servers, with the ability to start, stop, and
-resume execution while maintaining state through checkpoints.
+resume execution while maintaining state through checkpoints. Uses OpenRouter
+for LLM access and MCP Brave Search for web search integration.
 """
 
 import json
@@ -15,7 +16,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import openai
+import requests
 from pydantic import BaseModel
+
+from agent.mcp_client import MCPClient
 
 
 class AgentCheckpoint(BaseModel):
@@ -37,35 +41,50 @@ class KnowledgeAgent:
     Features:
     - Start, stop, and resume execution
     - Maintain state in checkpoint files
-    - Identify knowledge gaps
-    - Gather new information (placeholder)
+    - Identify knowledge gaps using LLM
+    - Gather information via web search (MCP Brave Search)
+    - Augment knowledge with citations from web search
     - Write knowledge as markdown files
     - Traceable progress via checkpoints
     """
     
+    DEFAULT_MODEL = "gemini-2.0-flash-lite"
+    
     def __init__(self, 
                  knowledge_dir: str = "knowledge",
                  checkpoint_file: str = ".agent_checkpoint.json",
-                 openai_api_key: Optional[str] = None):
+                 openrouter_api_key: Optional[str] = None,
+                 mcp_server_url: str = "http://localhost:8080"):
         """
         Initialize the Knowledge Agent.
         
         Args:
             knowledge_dir: Directory to store knowledge markdown files
             checkpoint_file: File to store agent checkpoint state
-            openai_api_key: Optional API key for OpenAI. If not provided, will use OPENAI_API_KEY env var
+            openrouter_api_key: API key for OpenRouter. If not provided, will use OPENROUTER_API_KEY env var
+            mcp_server_url: URL of the MCP Brave Search server
         """
         self.knowledge_dir = Path(knowledge_dir)
         self.checkpoint_file = Path(checkpoint_file)
         self.logger = self._setup_logging()
+        self.mcp_server_url = mcp_server_url
         
-        # Configure OpenAI client
-        self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
-        if self.openai_api_key:
-            self.client = openai.OpenAI(api_key=self.openai_api_key)
+        # Configure OpenRouter client
+        self.openrouter_api_key = openrouter_api_key or os.environ.get("OPENROUTER_API_KEY")
+        if self.openrouter_api_key:
+            # OpenRouter supports the OpenAI client library with a different base URL
+            self.client = openai.OpenAI(
+                api_key=self.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={"HTTP-Referer": "https://github.com/nkbud/oioio-ai"}
+            )
+            self.logger.info(f"OpenRouter client configured with default model: {self.DEFAULT_MODEL}")
         else:
             self.client = None
-            self.logger.warning("No OpenAI API key provided. LLM features will be disabled.")
+            self.logger.warning("No OpenRouter API key provided. LLM features will be disabled.")
+        
+        # Set up MCP client
+        self.mcp_client = MCPClient(server_url=self.mcp_server_url)
         
         # Ensure knowledge directory exists
         self.knowledge_dir.mkdir(exist_ok=True)
@@ -153,9 +172,9 @@ Current knowledge files: {file_list if existing_file_content else 'No files yet'
 Review the existing content and identify 3-5 specific areas where knowledge is missing or incomplete.
 Focus on important technical aspects of MCP servers that would be valuable to document."""
 
-                # Call the OpenAI API
+                # Call the OpenRouter API
                 response = self.client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=self.DEFAULT_MODEL,
                     messages=[
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": prompt}
@@ -205,18 +224,176 @@ Focus on important technical aspects of MCP servers that would be valuable to do
         
         return gaps
     
-    def _gather_information(self, gap: str) -> Dict[str, Any]:
+    def _generate_search_terms(self, knowledge_gap: str) -> List[str]:
         """
-        Gather information for a specific knowledge gap using LLM.
+        Generate search terms for a knowledge gap using LLM.
+        
+        Args:
+            knowledge_gap: The knowledge gap to generate search terms for
+            
+        Returns:
+            List of search terms
+        """
+        if not self.client:
+            self.logger.warning("LLM not available. Using default search terms.")
+            # Generate simple search terms based on gap string
+            return [knowledge_gap.replace("Missing knowledge about: ", "")]
+        
+        try:
+            system_message = """You are a search query generation expert.
+Given a knowledge gap about MCP (Model Context Protocol) servers, generate 3-5 effective search queries
+that would help gather comprehensive information about this topic.
+
+Generate each search query on a new line.
+Focus on technical, specific search terms that would yield high-quality results.
+"""
+
+            response = self.client.chat.completions.create(
+                model=self.DEFAULT_MODEL,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": f"Generate search queries for: {knowledge_gap}"}
+                ],
+                temperature=0.4,
+                max_tokens=200
+            )
+            
+            search_terms_text = response.choices[0].message.content.strip()
+            search_terms = [term.strip() for term in search_terms_text.split('\n') if term.strip()]
+            
+            self.logger.info(f"Generated {len(search_terms)} search terms for '{knowledge_gap}'")
+            return search_terms
+            
+        except Exception as e:
+            self.logger.error(f"Error generating search terms: {e}")
+            return [knowledge_gap.replace("Missing knowledge about: ", "")]
+    
+    def _perform_web_search(self, search_terms: List[str]) -> List[Dict[str, Any]]:
+        """
+        Perform web searches using the MCP Brave Search server.
+        
+        Args:
+            search_terms: List of search terms to use
+            
+        Returns:
+            List of search results with title, content, and url
+        """
+        all_results = []
+        
+        # Try to connect to the MCP server
+        try:
+            connected = self.mcp_client.connect()
+            if not connected:
+                self.logger.error("Failed to connect to MCP Brave Search server")
+                return []
+            
+            # Perform searches for each term
+            for term in search_terms:
+                try:
+                    results = self.mcp_client.search(term, max_results=3)
+                    for result in results:
+                        result["search_term"] = term
+                    all_results.extend(results)
+                except Exception as e:
+                    self.logger.error(f"Error searching for '{term}': {e}")
+            
+            # Close the connection
+            self.mcp_client.close()
+            
+        except Exception as e:
+            self.logger.error(f"Error with MCP client: {e}")
+        
+        self.logger.info(f"Web search returned {len(all_results)} total results")
+        return all_results
+    
+    def _compile_knowledge_with_citations(self, gap: str, search_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Compile knowledge content with citations from search results using LLM.
         
         Args:
             gap: The knowledge gap to address
+            search_results: List of search results to incorporate
             
         Returns:
-            Dictionary containing gathered information
+            Dictionary with compiled knowledge content
         """
         timestamp = datetime.now().isoformat()
         
+        if not self.client or not search_results:
+            # Fall back to the original _gather_information method if we have no client or search results
+            return self._generate_content_without_citations(gap, timestamp)
+        
+        try:
+            # Format search results for the LLM
+            formatted_results = []
+            for i, result in enumerate(search_results):
+                formatted_results.append(f"""
+Source {i+1}: 
+Title: {result.get('title', 'Unknown Title')}
+URL: {result.get('url', 'Unknown URL')}
+Snippet: {result.get('snippet', result.get('description', 'No description available'))}
+""")
+            
+            search_content = "\n".join(formatted_results)
+            
+            system_message = """You are an expert knowledge base creator for MCP (Model Context Protocol) servers.
+Your task is to synthesize comprehensive markdown content using the provided search results,
+filling a knowledge gap with accurate, well-cited information.
+
+Create detailed, technical, but accessible content that would be valuable to developers and architects.
+
+Your response MUST:
+1. Have a clear, descriptive title (H1)
+2. Include multiple sections with headings (H2, H3)
+3. Provide technical details, examples, and where applicable, code snippets
+4. Include citations to the sources provided, using numbered references [1], [2], etc.
+5. Include a "References" section at the end listing all cited sources with their URLs
+6. Be comprehensive but concise (600-1000 words)
+7. Focus on factual information, properly attributed to sources
+
+Format as markdown with proper headings, lists, code blocks, etc."""
+
+            response = self.client.chat.completions.create(
+                model=self.DEFAULT_MODEL,  
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": f"Create knowledge content about: {gap}\n\nSearch Results:\n{search_content}"}
+                ],
+                temperature=0.5,
+                max_tokens=1500  # Increased for more comprehensive content
+            )
+            
+            # Extract the content from the response
+            content_text = response.choices[0].message.content.strip()
+            
+            # Extract title from the first line if it starts with #
+            lines = content_text.split('\n')
+            title = lines[0].strip('# ') if lines and lines[0].startswith('#') else gap
+            
+            return {
+                "title": title,
+                "content": content_text,
+                "source": "llm_with_citations",
+                "search_results_count": len(search_results),
+                "gathered_at": timestamp
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error compiling knowledge with citations: {e}")
+            # Fall back to content generation without citations
+            return self._generate_content_without_citations(gap, timestamp)
+    
+    def _generate_content_without_citations(self, gap: str, timestamp: str) -> Dict[str, Any]:
+        """
+        Generate content without citations when web search is unavailable.
+        
+        Args:
+            gap: The knowledge gap to address
+            timestamp: Current timestamp
+            
+        Returns:
+            Dictionary with generated content
+        """
         if self.client:
             try:
                 # Create a system message with instructions for knowledge generation
@@ -233,9 +410,9 @@ Your response should:
 
 Format as markdown with proper headings, lists, code blocks, etc."""
 
-                # Call the OpenAI API
+                # Call the OpenRouter API
                 response = self.client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=self.DEFAULT_MODEL,
                     messages=[
                         {"role": "system", "content": system_message},
                         {"role": "user", "content": f"Create knowledge content about: {gap}"}
@@ -417,10 +594,24 @@ Information about this topic would be gathered from various sources including:
                 "errors": []
             }
             
-            # Step 2: Gather information for each gap
+            # Step 2: Gather information for each gap using the RAG approach
             for gap in gaps:
                 try:
-                    information = self._gather_information(gap)
+                    # Generate search terms
+                    search_terms = self._generate_search_terms(gap)
+                    self.logger.info(f"Generated {len(search_terms)} search terms for '{gap}'")
+                    
+                    # Perform web searches
+                    search_results = self._perform_web_search(search_terms)
+                    self.logger.info(f"Retrieved {len(search_results)} search results")
+                    
+                    # Compile knowledge content with citations
+                    if search_results:
+                        information = self._compile_knowledge_with_citations(gap, search_results)
+                    else:
+                        information = self._generate_content_without_citations(gap, datetime.now().isoformat())
+                    
+                    # Write to file
                     filepath = self._write_knowledge_file(information)
                     self.checkpoint.knowledge_files_created.append(filepath)
                     cycle_results["files_created"] += 1

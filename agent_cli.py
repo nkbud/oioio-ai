@@ -19,16 +19,19 @@ from agent.knowledge_agent import KnowledgeAgent
               help='Directory to store knowledge files')
 @click.option('--checkpoint-file', default='.agent_checkpoint.json',
               help='Checkpoint file path')
-@click.option('--openai-api-key', 
-              default=lambda: os.environ.get("OPENAI_API_KEY"), 
-              help='OpenAI API key (or set OPENAI_API_KEY env var)')
+@click.option('--openrouter-api-key', 
+              default=lambda: os.environ.get("OPENROUTER_API_KEY"), 
+              help='OpenRouter API key (or set OPENROUTER_API_KEY env var)')
+@click.option('--mcp-server-url', default='http://localhost:8080',
+              help='URL for the MCP Brave Search server')
 @click.pass_context
-def cli(ctx, knowledge_dir, checkpoint_file, openai_api_key):
+def cli(ctx, knowledge_dir, checkpoint_file, openrouter_api_key, mcp_server_url):
     """Knowledge Agent CLI - Autonomous MCP Server Knowledge Accumulation."""
     ctx.ensure_object(dict)
     ctx.obj['knowledge_dir'] = knowledge_dir
     ctx.obj['checkpoint_file'] = checkpoint_file
-    ctx.obj['openai_api_key'] = openai_api_key
+    ctx.obj['openrouter_api_key'] = openrouter_api_key
+    ctx.obj['mcp_server_url'] = mcp_server_url
 
 
 @cli.command()
@@ -39,13 +42,38 @@ def cli(ctx, knowledge_dir, checkpoint_file, openai_api_key):
 @click.option('--prompt', '-p', 
               default="Identify key knowledge gaps about MCP servers",
               help='Prompt for knowledge gap identification')
+@click.option('--start-docker', is_flag=True,
+              help='Start the MCP Brave Search server with Docker Compose before running')
 @click.pass_context
-def run(ctx, cycles, delay, prompt):
+def run(ctx, cycles, delay, prompt, start_docker):
     """Run the knowledge agent for specified cycles."""
+    if start_docker:
+        click.echo("Starting MCP Brave Search server with Docker Compose...")
+        # This imports the subprocess module only when needed
+        import subprocess
+        try:
+            result = subprocess.run(
+                ['docker-compose', 'up', '-d', 'brave-search'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            click.echo("Docker container started successfully.")
+        except subprocess.CalledProcessError as e:
+            click.echo(f"Error starting Docker container: {e}", err=True)
+            click.echo(f"Error output: {e.stderr}", err=True)
+            if not click.confirm("Continue without MCP Brave Search server?"):
+                return
+        except FileNotFoundError:
+            click.echo("Docker Compose not found. Please install Docker Compose.")
+            if not click.confirm("Continue without MCP Brave Search server?"):
+                return
+    
     agent = KnowledgeAgent(
         knowledge_dir=ctx.obj['knowledge_dir'],
         checkpoint_file=ctx.obj['checkpoint_file'],
-        openai_api_key=ctx.obj['openai_api_key']
+        openrouter_api_key=ctx.obj['openrouter_api_key'],
+        mcp_server_url=ctx.obj['mcp_server_url']
     )
     
     click.echo(f"Starting knowledge agent: {cycles} cycles with {delay}s delay")
@@ -83,7 +111,9 @@ def status(ctx):
     """Show current agent status."""
     agent = KnowledgeAgent(
         knowledge_dir=ctx.obj['knowledge_dir'],
-        checkpoint_file=ctx.obj['checkpoint_file']
+        checkpoint_file=ctx.obj['checkpoint_file'],
+        openrouter_api_key=ctx.obj['openrouter_api_key'],
+        mcp_server_url=ctx.obj['mcp_server_url']
     )
     
     status_info = agent.get_status()
@@ -96,16 +126,42 @@ def status(ctx):
     click.echo(f"Last run: {status_info['last_run_time'] or 'Never'}")
     click.echo(f"Created: {status_info['created_at']}")
     click.echo(f"Updated: {status_info['updated_at']}")
+    
+    # Check if MCP server is reachable
+    try:
+        if agent.mcp_client.connect():
+            click.echo("\nMCP Brave Search server: Connected")
+            agent.mcp_client.close()
+        else:
+            click.echo("\nMCP Brave Search server: Not reachable")
+    except Exception:
+        click.echo("\nMCP Brave Search server: Error connecting")
+    
+    # Docker status
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['docker-compose', 'ps'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode == 0:
+            click.echo("\nDocker Compose Status:")
+            click.echo(result.stdout)
+    except Exception:
+        pass
 
 
 @cli.command()
 @click.option('--prompt', '-p', 
               default="Identify key knowledge gaps about MCP servers",
               help='Prompt for knowledge gap identification')
+@click.option('--start-docker', is_flag=True,
+              help='Start the MCP Brave Search server with Docker Compose before running')
 @click.pass_context 
-def resume(ctx, prompt):
+def resume(ctx, prompt, start_docker):
     """Resume agent from last checkpoint (alias for run with 1 cycle)."""
-    ctx.invoke(run, cycles=1, delay=0.0, prompt=prompt)
+    ctx.invoke(run, cycles=1, delay=0.0, prompt=prompt, start_docker=start_docker)
 
 
 @cli.command()
@@ -121,7 +177,9 @@ def reset(ctx, confirm):
     
     agent = KnowledgeAgent(
         knowledge_dir=ctx.obj['knowledge_dir'],
-        checkpoint_file=ctx.obj['checkpoint_file']
+        checkpoint_file=ctx.obj['checkpoint_file'],
+        openrouter_api_key=ctx.obj['openrouter_api_key'],
+        mcp_server_url=ctx.obj['mcp_server_url']
     )
     
     agent.reset()
@@ -196,6 +254,42 @@ def checkpoint(ctx):
         
     except Exception as e:
         click.echo(f"Error reading checkpoint: {e}", err=True)
+
+
+@cli.command()
+@click.argument('action', type=click.Choice(['start', 'stop', 'restart', 'status']))
+@click.pass_context
+def docker(ctx, action):
+    """Manage the MCP Brave Search Docker container."""
+    import subprocess
+    
+    try:
+        if action == 'start':
+            click.echo("Starting MCP Brave Search server...")
+            result = subprocess.run(['docker-compose', 'up', '-d', 'brave-search'], check=True)
+            click.echo("Container started successfully")
+        
+        elif action == 'stop':
+            click.echo("Stopping MCP Brave Search server...")
+            result = subprocess.run(['docker-compose', 'stop', 'brave-search'], check=True)
+            click.echo("Container stopped successfully")
+        
+        elif action == 'restart':
+            click.echo("Restarting MCP Brave Search server...")
+            result = subprocess.run(['docker-compose', 'restart', 'brave-search'], check=True)
+            click.echo("Container restarted successfully")
+        
+        elif action == 'status':
+            result = subprocess.run(['docker-compose', 'ps', 'brave-search'], capture_output=True, text=True)
+            click.echo("MCP Brave Search server status:")
+            click.echo(result.stdout)
+    
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Error: {e}", err=True)
+        if e.stderr:
+            click.echo(f"Error details: {e.stderr}", err=True)
+    except FileNotFoundError:
+        click.echo("Docker Compose not found. Please install Docker Compose.", err=True)
 
 
 if __name__ == '__main__':
