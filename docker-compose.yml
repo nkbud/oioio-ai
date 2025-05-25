@@ -3,7 +3,46 @@ services:
   brave-search:
     image: mcp/brave-search
     ports:
-      - "8080:8080"  # Assuming the server runs on port 8080
+      - "${MCP_PORT:-8080}:8080"  # Use env var or default to 8080
     restart: unless-stopped
     volumes:
-      - ./mcp_data:/data  # Optional: for data persistence if needed
+      - ${MCP_DATA_DIR:-./mcp_data}:/data  # Use env var or default to ./mcp_data
+    environment:
+      - LOG_LEVEL=${MCP_LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+      
+  # Service for running the MCP Agent in a container
+  mcp-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - MCP_SERVER_URL=http://brave-search:8080
+      - MCP_KNOWLEDGE_DIR=/app/knowledge
+      - PREFECT_API_URL=${PREFECT_API_URL:-http://prefect-server:4200/api}
+    volumes:
+      - ./knowledge:/app/knowledge
+    depends_on:
+      - brave-search
+    profiles:
+      - agent  # Only start with docker-compose --profile agent up
+      
+  # Optional Prefect server for local development
+  prefect-server:
+    image: prefecthq/prefect:2-latest
+    ports:
+      - "4200:4200"
+    command: prefect server start
+    volumes:
+      - prefect_data:/root/.prefect
+    profiles:
+      - prefect  # Only start with docker-compose --profile prefect up
+
+volumes:
+  prefect_data:

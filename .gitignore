@@ -113,8 +113,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Agent-specific
+# Agent-specific files
 .agent_checkpoint.json
+.prefect/
 
 # Docker volumes
 mcp_data/
+
+# UV specific
+.uv/
