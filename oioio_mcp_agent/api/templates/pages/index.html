@@ -1,0 +1,64 @@
+{% extends "layouts/base.html" %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <div class="bg-white shadow-md rounded-lg p-8 mb-8">
+        <h1 class="text-3xl font-bold text-gray-900 mb-6">OIOIO MCP Agent</h1>
+        <p class="text-lg text-gray-700 mb-6">
+            Autonomous MCP Server Knowledge Accumulation - A durable background agent system for autonomously accumulating knowledge about Model Context Protocol (MCP) servers.
+        </p>
+        
+        <div class="flex flex-col md:flex-row md:space-x-4 mt-8">
+            <a href="/login" class="mb-4 md:mb-0 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-md transition duration-300 text-center">
+                Login
+            </a>
+            <a href="/api/docs" class="bg-white hover:bg-gray-100 text-indigo-600 font-bold py-3 px-6 rounded-md border border-indigo-600 transition duration-300 text-center">
+                API Documentation
+            </a>
+        </div>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Durable Execution</h2>
+            <p class="text-gray-700">Start, stop, and resume with full state persistence via JSON checkpoints.</p>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Knowledge Accumulation</h2>
+            <p class="text-gray-700">Automatically identify knowledge gaps and gather information from various sources.</p>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Declarative Configuration</h2>
+            <p class="text-gray-700">Configure and control the system using YAML-based configuration and environment variables.</p>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">Features</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Multi-Tenant API</h3>
+                <p class="text-gray-700">Secure, multi-tenant API with OAuth2 authentication and role-based access control.</p>
+            </div>
+            
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">HTMX-Based UI</h3>
+                <p class="text-gray-700">Responsive user interface with modern tech stack and minimal JavaScript.</p>
+            </div>
+            
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Cloud Deployment</h3>
+                <p class="text-gray-700">Deploy to various VPS providers with Terraform and CI/CD automation.</p>
+            </div>
+            
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Plugin System</h3>
+                <p class="text-gray-700">Extend functionality with custom plugins for different components.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

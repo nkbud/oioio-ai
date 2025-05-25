@@ -19,6 +19,15 @@ dependencies = [
     "requests>=2.25.0",
     "click>=8.0.0",
     "docker-compose>=1.29.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.11.0",
+    "python-jose>=3.3.0",
+    "python-multipart>=0.0.6",
+    "httpx>=0.24.0",
+    "authlib>=1.2.0",
+    "itsdangerous>=2.1.2",
 ]
 
 [project.optional-dependencies]

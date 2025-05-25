@@ -946,6 +946,100 @@ async def _wait_for_flow_run(flow_run_id: str) -> None:
                 time.sleep(2)
 
 
+@cli.command()
+@click.option(
+    "--host",
+    default=None,
+    help="API server host (default: from config or 0.0.0.0)",
+)
+@click.option(
+    "--port",
+    default=None,
+    type=int,
+    help="API server port (default: from config or 8000)",
+)
+@click.option(
+    "--reload",
+    is_flag=True,
+    help="Enable auto-reload for development",
+)
+@click.option(
+    "--workers",
+    default=1,
+    type=int,
+    help="Number of worker processes",
+)
+@click.pass_context
+def serve(ctx: click.Context, host: Optional[str], port: Optional[int], reload: bool, workers: int) -> None:
+    """Start the API server."""
+    config = ctx.obj["config"]
+    api_config = getattr(config, "api", {})
+    
+    # Import optional dependencies
+    try:
+        import uvicorn
+    except ImportError:
+        click.echo("Error: API server dependencies not installed.")
+        click.echo("Install with: pip install fastapi uvicorn")
+        raise click.Abort()
+    
+    # Get configuration
+    host = host or api_config.get("host", "0.0.0.0")
+    port = port or int(api_config.get("port", 8000))
+    
+    click.echo(f"Starting API server at http://{host}:{port}")
+    click.echo(f"API documentation available at http://{host}:{port}/api/docs")
+    
+    # Start server
+    uvicorn.run(
+        "oioio_mcp_agent.api.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+        workers=workers,
+    )
+
+
+@cli.command()
+@click.argument("command", type=click.Choice(["init", "upgrade", "revision"]))
+@click.option("--message", "-m", help="Migration message (for revision)")
+@click.pass_context
+def db(ctx: click.Context, command: str, message: Optional[str]) -> None:
+    """Manage database migrations."""
+    try:
+        from alembic import config as alembic_config
+    except ImportError:
+        click.echo("Error: Database migration dependencies not installed.")
+        click.echo("Install with: pip install alembic sqlalchemy")
+        raise click.Abort()
+    
+    # Get configuration
+    config = ctx.obj["config"]
+    api_config = getattr(config, "api", {})
+    
+    # Set environment variables for Alembic
+    os.environ["DATABASE_URL"] = api_config.get("database_url", "sqlite:///./oioio_mcp_agent.db")
+    
+    alembic_args = ["-c", "alembic.ini"]
+    
+    if command == "init":
+        click.echo("Initializing database...")
+        alembic_args.extend(["revision", "--autogenerate", "-m", "Initial migration"])
+        alembic_args.extend(["upgrade", "head"])
+    elif command == "upgrade":
+        click.echo("Upgrading database...")
+        alembic_args.extend(["upgrade", "head"])
+    elif command == "revision":
+        if not message:
+            click.echo("Error: Message required for revision")
+            raise click.Abort()
+        click.echo(f"Creating migration: {message}")
+        alembic_args.extend(["revision", "--autogenerate", "-m", message])
+    
+    alembic_config.main(argv=alembic_args)
+    click.echo("Database operation completed successfully.")
+
+
 def main() -> None:
     """Run the CLI."""
     cli(obj={})

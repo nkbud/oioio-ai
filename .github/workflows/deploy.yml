@@ -1,0 +1,76 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - prod
+      provider:
+        description: 'Cloud provider'
+        required: true
+        default: 'digitalocean'
+        type: choice
+        options:
+        - digitalocean
+        - aws
+        - vultr
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }} on ${{ github.event.inputs.provider }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.0.0
+    
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+    
+    - name: Generate SSH key if needed
+      run: |
+        if [ ! -f ~/.ssh/id_rsa.pub ]; then
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+        fi
+    
+    - name: Update provider in Terraform config
+      working-directory: ./terraform/environments/${{ github.event.inputs.environment }}
+      run: |
+        sed -i 's|source = "../../modules/.*"|source = "../../modules/${{ github.event.inputs.provider }}"|' main.tf
+    
+    - name: Deploy with Terraform
+      working-directory: ./terraform/environments/${{ github.event.inputs.environment }}
+      env:
+        TF_VAR_database_password: ${{ secrets.DATABASE_PASSWORD }}
+        TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+        TF_VAR_session_secret: ${{ secrets.SESSION_SECRET }}
+        TF_VAR_google_client_id: ${{ secrets.GOOGLE_CLIENT_ID }}
+        TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        TF_VAR_openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+        TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+        TF_VAR_vultr_api_key: ${{ secrets.VULTR_API_KEY }}
+      run: |
+        terraform init
+        terraform apply -auto-approve
+    
+    - name: Output deployment information
+      working-directory: ./terraform/environments/${{ github.event.inputs.environment }}
+      run: |
+        echo "Application URL: $(terraform output -raw application_url)"
+        echo "SSH command: $(terraform output -raw ssh_command)"

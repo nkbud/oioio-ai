@@ -1,0 +1,52 @@
+<nav class="container mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center">
+        <a href="/" class="text-white font-bold text-xl">OIOIO MCP Agent</a>
+    </div>
+    
+    <div class="hidden md:flex space-x-8">
+        <a href="/dashboard" class="text-white hover:text-indigo-200">Dashboard</a>
+        <a href="/agents" class="text-white hover:text-indigo-200">Agents</a>
+        <a href="/knowledge" class="text-white hover:text-indigo-200">Knowledge</a>
+    </div>
+    
+    <div x-data="{ open: false }" class="relative">
+        <button @click="open = !open" class="flex items-center space-x-2 text-white hover:text-indigo-200 focus:outline-none">
+            <span>{{ current_user.username }}</span>
+            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+        </button>
+        
+        <div x-cloak x-show="open" @click.away="open = false" class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+            <a href="/profile" class="block px-4 py-2 text-gray-800 hover:bg-indigo-100">Profile</a>
+            <a href="/settings" class="block px-4 py-2 text-gray-800 hover:bg-indigo-100">Settings</a>
+            <div class="border-t border-gray-200"></div>
+            <a href="/api/auth/logout" class="block px-4 py-2 text-gray-800 hover:bg-indigo-100">Logout</a>
+        </div>
+    </div>
+    
+    <!-- Mobile menu button -->
+    <div x-data="{ open: false }" class="md:hidden">
+        <button @click="open = !open" class="text-white focus:outline-none">
+            <svg x-show="!open" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+            <svg x-show="open" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+        
+        <!-- Mobile menu -->
+        <div x-cloak x-show="open" class="absolute top-16 right-0 left-0 bg-indigo-800 z-50 shadow-md">
+            <div class="px-2 pt-2 pb-3 space-y-1">
+                <a href="/dashboard" class="block px-3 py-2 rounded-md text-white hover:bg-indigo-700">Dashboard</a>
+                <a href="/agents" class="block px-3 py-2 rounded-md text-white hover:bg-indigo-700">Agents</a>
+                <a href="/knowledge" class="block px-3 py-2 rounded-md text-white hover:bg-indigo-700">Knowledge</a>
+                <div class="border-t border-indigo-700 my-2"></div>
+                <a href="/profile" class="block px-3 py-2 rounded-md text-white hover:bg-indigo-700">Profile</a>
+                <a href="/settings" class="block px-3 py-2 rounded-md text-white hover:bg-indigo-700">Settings</a>
+                <a href="/api/auth/logout" class="block px-3 py-2 rounded-md text-white hover:bg-indigo-700">Logout</a>
+            </div>
+        </div>
+    </div>
+</nav>
