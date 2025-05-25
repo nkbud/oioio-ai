@@ -1,0 +1,65 @@
+version: "1.0"
+
+# Core configuration
+core:
+  knowledge_dir: knowledge
+  checkpoint_dir: .prefect
+  log_level: INFO
+
+# Docker configuration
+docker:
+  compose_file: docker-compose.yml
+  services:
+    - name: brave-search
+      image: mcp/brave-search
+      port: 8080
+
+# LLM configuration
+llm:
+  provider: openrouter
+  model: gemini-2.0-flash-lite
+  temperature: 0.7
+  max_tokens: 500
+  timeout: 30
+
+# Agent configuration
+agents:
+  - name: mcp-knowledge-agent
+    enabled: true
+    flows:
+      - name: knowledge_flow
+        schedule: "interval:3600"  # Run every hour
+        params:
+          max_gaps_to_process: 3
+          prompt: "Identify key knowledge gaps about MCP servers"
+
+# Flow definitions
+flows:
+  knowledge_flow:
+    tasks:
+      - identify_gaps
+      - generate_search_terms
+      - perform_web_search
+      - compile_knowledge
+      - write_knowledge_file
+
+# Task definitions and configuration
+tasks:
+  identify_gaps:
+    plugin: llm_gap_identifier
+    params:
+      max_gaps: 5
+  
+  generate_search_terms:
+    plugin: llm_search_term_generator
+    
+  perform_web_search:
+    plugin: mcp_brave_search
+    
+  compile_knowledge:
+    plugin: llm_knowledge_compiler
+    
+  write_knowledge_file:
+    plugin: markdown_writer
+    params:
+      add_timestamp: true

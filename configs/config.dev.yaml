@@ -1,0 +1,17 @@
+version: "1.0"
+
+# Development environment overrides
+core:
+  log_level: DEBUG
+
+# Adjust LLM configuration for development
+llm:
+  model: gemini-2.0-flash-lite  # Use a faster model for development
+  max_tokens: 300  # Limit tokens for faster responses
+  
+# Reduced schedule frequency for development
+agents:
+  - name: mcp-knowledge-agent
+    flows:
+      - name: knowledge_flow
+        schedule: "interval:7200"  # Every 2 hours instead of 1

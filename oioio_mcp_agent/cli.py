@@ -1,24 +1,544 @@
 """
-Command-line interface for the MCP Knowledge Agent.
+Command-line interface for the OIOIO MCP Agent.
 """
 
-import os
+import asyncio
 import json
+import logging
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import click
+from dotenv import load_dotenv
 from prefect import get_client
 from prefect.client.schemas import FlowRun
 from prefect.deployments import run_deployment
 from prefect.states import Completed, Failed
 
-from oioio_mcp_agent.config import AgentConfig
-from oioio_mcp_agent.deploy import create_deployment, deploy
-from oioio_mcp_agent.flows.knowledge_flow import knowledge_agent_flow
+from oioio_mcp_agent.config import Config, ConfigLoader
+from oioio_mcp_agent.core import AgentManager, discover_plugins
+
+
+@click.group()
+@click.option(
+    "--config",
+    "-c",
+    default="config.yaml",
+    help="Path to configuration file",
+)
+@click.option(
+    "--env-file",
+    "-e",
+    default=".env",
+    help="Path to environment file",
+)
+@click.option(
+    "--env",
+    default=lambda: os.environ.get("MCP_ENV", "dev"),
+    help="Environment name (dev, prod, etc.) for loading specific config",
+)
+@click.option(
+    "--config-dir",
+    default="configs",
+    help="Directory containing configuration files",
+)
+@click.option(
+    "--log-level",
+    default=lambda: os.environ.get("MCP_LOG_LEVEL", "INFO"),
+    help="Logging level",
+)
+@click.pass_context
+def cli(
+    ctx: click.Context,
+    config: str,
+    env_file: str,
+    env: str,
+    config_dir: str,
+    log_level: str,
+) -> None:
+    """OIOIO MCP Agent - Autonomous MCP Server Knowledge Accumulation."""
+    ctx.ensure_object(dict)
+    
+    # Set up logging
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    
+    logger = logging.getLogger("cli")
+    logger.info(f"Starting CLI with environment: {env}")
+    
+    # Create config directory if it doesn't exist
+    Path(config_dir).mkdir(exist_ok=True)
+    
+    # Load environment variables
+    env_path = Path(env_file)
+    if env_path.exists():
+        load_dotenv(env_path)
+        logger.info(f"Loaded environment variables from {env_path}")
+    else:
+        logger.warning(f"Environment file {env_path} not found, continuing without it")
+    
+    # Load configuration
+    try:
+        # Use configuration loader for YAML-based config
+        config_loader = ConfigLoader(config_dir=config_dir)
+        loaded_config = config_loader.load_config(config_name=config, env_name=env)
+        ctx.obj["config"] = loaded_config
+        logger.info(f"Loaded configuration from {config_dir}/{config}")
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        if not Path(f"{config_dir}/{config}").exists():
+            logger.error(f"Configuration file {config_dir}/{config} not found")
+            logger.info("Run 'init' command to create a default configuration file")
+        raise click.Abort()
+    
+    # Discover plugins
+    discover_plugins("oioio_mcp_agent.plugins")
+
+
+@cli.command()
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force overwrite existing configuration",
+)
+@click.pass_context
+def init(ctx: click.Context, force: bool) -> None:
+    """Initialize default configuration."""
+    config_dir = Path("configs")
+    config_path = config_dir / "config.yaml"
+    env_path = Path(".env.example")
+    
+    if config_path.exists() and not force:
+        click.echo(f"Configuration file already exists: {config_path}")
+        click.echo("Use --force to overwrite")
+        return
+    
+    # Create config directory
+    config_dir.mkdir(exist_ok=True)
+    
+    # Create default configuration
+    default_config = {
+        "version": "1.0",
+        "core": {
+            "knowledge_dir": "knowledge",
+            "checkpoint_dir": ".prefect",
+            "log_level": "INFO"
+        },
+        "docker": {
+            "compose_file": "docker-compose.yml",
+            "services": [
+                {
+                    "name": "brave-search",
+                    "image": "mcp/brave-search",
+                    "port": 8080
+                }
+            ]
+        },
+        "llm": {
+            "provider": "openrouter",
+            "model": "gemini-2.0-flash-lite",
+            "temperature": 0.7,
+            "max_tokens": 500
+        },
+        "agents": [
+            {
+                "name": "mcp-knowledge-agent",
+                "enabled": True,
+                "flows": [
+                    {
+                        "name": "knowledge_flow",
+                        "schedule": "interval:3600",
+                        "params": {
+                            "max_gaps_to_process": 3,
+                            "prompt": "Identify key knowledge gaps about MCP servers"
+                        }
+                    }
+                ]
+            }
+        ],
+        "flows": {
+            "knowledge_flow": {
+                "tasks": [
+                    "identify_gaps",
+                    "generate_search_terms",
+                    "perform_web_search",
+                    "compile_knowledge",
+                    "write_knowledge_file"
+                ]
+            }
+        },
+        "tasks": {
+            "identify_gaps": {
+                "plugin": "llm_gap_identifier",
+                "params": {
+                    "max_gaps": 5
+                }
+            },
+            "generate_search_terms": {
+                "plugin": "llm_search_term_generator"
+            },
+            "perform_web_search": {
+                "plugin": "mcp_brave_search"
+            },
+            "compile_knowledge": {
+                "plugin": "llm_knowledge_compiler"
+            },
+            "write_knowledge_file": {
+                "plugin": "markdown_writer",
+                "params": {
+                    "add_timestamp": True
+                }
+            }
+        }
+    }
+    
+    # Write config file
+    import yaml
+    with open(config_path, "w") as f:
+        yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
+    
+    click.echo(f"Created default configuration file: {config_path}")
+    
+    # Create dev and prod config files
+    for env in ["dev", "prod"]:
+        env_config_path = config_dir / f"config.{env}.yaml"
+        if not env_config_path.exists() or force:
+            with open(env_config_path, "w") as f:
+                yaml.dump({
+                    "version": "1.0",
+                    "core": {
+                        "log_level": "DEBUG" if env == "dev" else "INFO"
+                    }
+                }, f, default_flow_style=False, sort_keys=False)
+            click.echo(f"Created {env} configuration file: {env_config_path}")
+    
+    # Create example .env file
+    if not env_path.exists() or force:
+        with open(env_path, "w") as f:
+            f.write("# Environment variables for OIOIO MCP Agent\n")
+            f.write("MCP_ENV=dev\n")
+            f.write("MCP_LOG_LEVEL=INFO\n")
+            f.write("\n# LLM API keys\n")
+            f.write("OPENROUTER_API_KEY=\n")
+            f.write("\n# Docker configuration\n")
+            f.write("MCP_PORT=8080\n")
+            f.write("MCP_DATA_DIR=./mcp_data\n")
+            f.write("\n# Prefect configuration\n")
+            f.write("PREFECT_API_URL=http://localhost:4200/api\n")
+        
+        click.echo(f"Created example environment file: {env_path}")
+        click.echo("Copy .env.example to .env and fill in your API keys")
+
+
+@cli.command()
+@click.option(
+    "--agents",
+    "-a",
+    help="Comma-separated list of agents to start (default: all)",
+)
+@click.option(
+    "--start-docker",
+    is_flag=True,
+    help="Start Docker services before starting agents",
+)
+@click.pass_context
+def start(ctx: click.Context, agents: Optional[str], start_docker: bool) -> None:
+    """Start agents based on configuration."""
+    config = ctx.obj["config"]
+    agent_names = agents.split(",") if agents else None
+    
+    # Start Docker services if requested
+    if start_docker:
+        _start_docker_services(config)
+    
+    click.echo("Starting agents...")
+    
+    # Create agent manager
+    agent_manager = AgentManager()
+    
+    # Filter agents if specified
+    agent_configs = config.agents
+    if agent_names:
+        agent_configs = [a for a in config.agents if a.name in agent_names]
+        if not agent_configs:
+            click.echo(f"No agents found with names: {agents}")
+            return
+    
+    # Load agents from configuration
+    agent_manager.load_agents_from_config(agent_configs)
+    
+    # Start all agents
+    try:
+        asyncio.run(agent_manager.start_all_agents())
+        click.echo(f"Started {len(agent_configs)} agents")
+    except Exception as e:
+        click.echo(f"Error starting agents: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command()
+@click.option(
+    "--services",
+    "-s",
+    help="Comma-separated list of services to start (default: all)",
+)
+@click.pass_context
+def docker(ctx: click.Context, services: Optional[str]) -> None:
+    """Start Docker services."""
+    config = ctx.obj["config"]
+    service_names = services.split(",") if services else None
+    
+    _start_docker_services(config, service_names)
+
+
+@cli.command()
+@click.pass_context
+def status(ctx: click.Context) -> None:
+    """Show agent status."""
+    config = ctx.obj["config"]
+    
+    click.echo("=== OIOIO MCP Agent Status ===")
+    
+    # Show configuration info
+    click.echo(f"Configuration:")
+    click.echo(f"  Environment: {os.environ.get('MCP_ENV', 'dev')}")
+    click.echo(f"  Knowledge directory: {config.core.knowledge_dir}")
+    click.echo(f"  Log level: {config.core.log_level}")
+    
+    # Show agent info
+    click.echo(f"\nAgents ({len(config.agents)}):")
+    for agent in config.agents:
+        click.echo(f"  - {agent.name}: {'Enabled' if agent.enabled else 'Disabled'}")
+        for flow in agent.flows:
+            flow_name = flow.get("name", "unknown")
+            schedule = flow.get("schedule", "manual")
+            click.echo(f"    - Flow: {flow_name} (Schedule: {schedule})")
+    
+    # Check Docker services
+    _check_docker_services(config)
+    
+    # Get recent flow runs
+    try:
+        recent_runs = asyncio.run(_get_recent_flow_runs())
+        if recent_runs:
+            click.echo("\nRecent flow runs:")
+            for run in recent_runs[:5]:  # Show 5 most recent
+                status = run.state.name if run.state else "Unknown"
+                start_time = run.start_time.strftime("%Y-%m-%d %H:%M:%S") if run.start_time else "Not started"
+                click.echo(f"  - {run.name} ({status}) - Started: {start_time}")
+        else:
+            click.echo("\nNo recent flow runs found.")
+    except Exception as e:
+        click.echo(f"Error fetching flow runs: {e}")
+
+
+@cli.command()
+@click.option(
+    "--agent",
+    "-a",
+    required=True,
+    help="Agent name",
+)
+@click.option(
+    "--flow",
+    "-f",
+    required=True,
+    help="Flow name",
+)
+@click.option(
+    "--wait",
+    is_flag=True,
+    help="Wait for flow run to complete",
+)
+@click.pass_context
+def run(ctx: click.Context, agent: str, flow: str, wait: bool) -> None:
+    """Run a flow manually."""
+    config = ctx.obj["config"]
+    
+    # Find agent config
+    agent_config = None
+    for a in config.agents:
+        if a.name == agent:
+            agent_config = a
+            break
+    
+    if not agent_config:
+        click.echo(f"Agent '{agent}' not found")
+        return
+    
+    # Find flow config
+    flow_config = None
+    for f in agent_config.flows:
+        if f.get("name") == flow:
+            flow_config = f
+            break
+    
+    if not flow_config:
+        click.echo(f"Flow '{flow}' not found in agent '{agent}'")
+        return
+    
+    # Run the flow
+    deployment_name = f"{agent}-{flow}"
+    click.echo(f"Running flow '{flow}' from agent '{agent}'...")
+    
+    try:
+        flow_run = asyncio.run(_run_flow(deployment_name, flow_config.get("params", {}), wait))
+        click.echo(f"Flow run started with ID: {flow_run}")
+    except Exception as e:
+        click.echo(f"Error running flow: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command()
+@click.option(
+    "--type",
+    "-t",
+    "plugin_type",
+    required=True,
+    help="Plugin type to list",
+)
+@click.pass_context
+def list_plugins(ctx: click.Context, plugin_type: str) -> None:
+    """List available plugins."""
+    from oioio_mcp_agent.core.plugin import get_registry
+    
+    try:
+        registry = get_registry(plugin_type)
+        plugins = registry.list_plugins()
+        
+        if not plugins:
+            click.echo(f"No plugins found for type '{plugin_type}'")
+            return
+        
+        click.echo(f"=== Plugins for type '{plugin_type}' ===")
+        for plugin_name in plugins:
+            click.echo(f"  - {plugin_name}")
+    
+    except Exception as e:
+        click.echo(f"Error listing plugins: {e}", err=True)
+
+
+def _start_docker_services(config: Config, service_names: Optional[List[str]] = None) -> None:
+    """Start Docker services."""
+    compose_file = config.docker.compose_file
+    services = config.docker.services
+    
+    if not services:
+        click.echo("No Docker services configured")
+        return
+    
+    # Filter services if specified
+    if service_names:
+        services = [s for s in services if s.name in service_names]
+        if not services:
+            click.echo(f"No services found with names: {service_names}")
+            return
+    
+    click.echo(f"Starting {len(services)} Docker services...")
+    
+    for service in services:
+        try:
+            click.echo(f"Starting service '{service.name}'...")
+            result = subprocess.run(
+                ["docker-compose", "-f", compose_file, "up", "-d", service.name],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            click.echo(f"Service '{service.name}' started successfully")
+        except subprocess.CalledProcessError as e:
+            click.echo(f"Error starting service '{service.name}': {e}", err=True)
+            if e.stderr:
+                click.echo(f"Error details: {e.stderr}", err=True)
+        except FileNotFoundError:
+            click.echo("Docker Compose not found. Please install Docker Compose.", err=True)
+            break
+
+
+def _check_docker_services(config: Config) -> None:
+    """Check status of Docker services."""
+    compose_file = config.docker.compose_file
+    services = config.docker.services
+    
+    if not services:
+        return
+    
+    click.echo("\nDocker services:")
+    
+    try:
+        for service in services:
+            result = subprocess.run(
+                ["docker-compose", "-f", compose_file, "ps", service.name],
+                capture_output=True,
+                text=True
+            )
+            
+            if "Up" in result.stdout:
+                status = "Running"
+            elif "Exit" in result.stdout:
+                status = "Stopped"
+            else:
+                status = "Unknown"
+                
+            click.echo(f"  - {service.name}: {status}")
+    
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Error checking Docker services: {e}", err=True)
+    except FileNotFoundError:
+        click.echo("Docker Compose not found", err=True)
+
+
+async def _get_recent_flow_runs() -> List[FlowRun]:
+    """Get recent flow runs."""
+    async with get_client() as client:
+        flow_runs = await client.read_flow_runs(
+            sort="-start_time",
+            limit=10,
+        )
+    return flow_runs
+
+
+async def _run_flow(deployment_name: str, parameters: Dict[str, Any], wait: bool) -> str:
+    """Run a flow deployment."""
+    flow_run = await run_deployment(
+        name=deployment_name,
+        parameters=parameters,
+    )
+    
+    run_id = flow_run.id
+    
+    if wait:
+        # Wait for flow run to complete
+        async with get_client() as client:
+            while True:
+                flow_run = await client.read_flow_run(run_id)
+                state = flow_run.state
+                
+                if state.is_completed():
+                    print(f"Flow run completed successfully!")
+                    break
+                    
+                if state.is_failed():
+                    print(f"Flow run failed: {state.message}")
+                    break
+                    
+                # Still running
+                print(f"Flow run status: {state.name}")
+                await asyncio.sleep(2)
+    
+    return run_id
+
+
+def main() -> None:
+    """Run the CLI."""
+    cli(obj={})
 
 
 @click.group()

@@ -1,16 +1,15 @@
-# MCP Knowledge Agent
+# OIOIO MCP Knowledge Agent
 
-A durable background agent for autonomously accumulating knowledge about MCP (Model Context Protocol) servers with web search capabilities.
+A declarative, scalable, and schedulable system for autonomously accumulating knowledge about MCP (Model Context Protocol) servers with web search capabilities.
 
 ## Features
 
-- **Prefect Integration**: Uses Prefect workflows for robust task orchestration and monitoring
-- **Durable Execution**: Start, stop, and resume execution with full state persistence
-- **Knowledge Gap Detection**: Uses LLM to identify gaps in the knowledge base
-- **Web Search Integration**: Uses MCP Brave Search server for real-time web search
-- **RAG Implementation**: Three-step RAG process for knowledge accumulation with citations
-- **Markdown Documentation**: Each knowledge piece stored as a separate markdown file
-- **Modern Python Packaging**: Built with uv and distributable via PyPI
+- **Declarative Configuration**: YAML-based configuration with environment variable support
+- **Pluggable Architecture**: Extensible plugin system for all core components
+- **Scalable Design**: Support for multiple agents, flows, and tasks
+- **Scheduler Integration**: Declaratively define schedules for automated execution
+- **Docker Integration**: Built-in Docker Compose management for services
+- **Modern Python**: Built with uv and distributable via PyPI
 
 ## Installation
 
@@ -28,7 +27,7 @@ uv pip install oioio-mcp-agent
 
 ```bash
 # Run directly without installing
-uvx oioio-mcp-agent run --cycles 1
+uvx oioio-mcp-agent run --agent mcp-knowledge-agent --flow knowledge_flow
 ```
 
 ### Development Installation
@@ -40,94 +39,124 @@ cd oioio-ai
 
 # Install in development mode with uv
 uv pip install -e .
+
+# Create initial configuration
+python -m oioio_mcp_agent init
 ```
 
 ## Quick Start
 
-1. Start the MCP Brave Search server:
+1. Initialize the configuration (first time only):
    ```bash
-   mcp-agent docker start
+   python -m oioio_mcp_agent init
    ```
 
-2. Run the agent with web search capabilities:
+2. Copy the example environment file and add your API keys:
    ```bash
-   export OPENROUTER_API_KEY="your_api_key_here"
-   mcp-agent run --cycles 3 --delay 1 --start-docker
+   cp .env.example .env
+   # Edit .env to add your API keys
    ```
 
-3. Check agent status:
+3. Start the MCP Brave Search server:
    ```bash
-   mcp-agent status
+   python -m oioio_mcp_agent docker
    ```
 
-4. List created knowledge files:
+4. Run a flow manually:
    ```bash
-   mcp-agent list-files
+   python -m oioio_mcp_agent run --agent mcp-knowledge-agent --flow knowledge_flow
    ```
 
-5. Deploy as a scheduled Prefect flow:
+5. Check agent status:
    ```bash
-   mcp-agent deploy --schedule 3600  # Run every hour
+   python -m oioio_mcp_agent status
    ```
+
+## Configuration
+
+The system uses a hierarchical configuration system:
+
+1. `configs/config.yaml` - Base configuration
+2. `configs/config.<env>.yaml` - Environment-specific overrides
+3. `.env` file - Secret keys and additional overrides
+4. Command-line arguments - Runtime overrides
+
+Example configuration:
+
+```yaml
+version: "1.0"
+
+# Core configuration
+core:
+  knowledge_dir: knowledge
+  log_level: INFO
+
+# Agent configuration
+agents:
+  - name: mcp-knowledge-agent
+    flows:
+      - name: knowledge_flow
+        schedule: "interval:3600"  # Run every hour
+```
+
+See the [Configuration Guide](docs/howto/configuration.md) for more details.
 
 ## CLI Commands
 
-- `run` - Run the agent for specified cycles
-- `status` - Show current agent status and files
-- `deploy` - Create a Prefect deployment for the agent
-- `start` - Start a flow run from a deployment
-- `list-files` - List all knowledge files created
-- `show <filename>` - Display contents of a knowledge file
-- `docker <action>` - Manage the MCP Brave Search Docker container
+- `init` - Create initial configuration files
+- `start` - Start agents based on configuration
+- `docker` - Manage Docker services
+- `status` - Show status of agents, flows, and services
+- `run` - Run a specific flow manually
+- `list-plugins` - List available plugins by type
 
-## Architecture
+## Extending the System
 
-Built with Prefect's controlflow framework, the system consists of:
+### Creating Custom Plugins
 
-- **Tasks**: Modular units for specific operations
-  - Knowledge gap identification
-  - Search term generation
-  - Web search integration
-  - Knowledge compilation
-  - File writing
+The system supports four main types of plugins:
 
-- **Flows**: Orchestrated workflows that combine tasks
-  - Main knowledge agent flow
+1. Gap Identifier Plugins
+2. Search Plugins
+3. LLM Plugins
+4. Document Writer Plugins
 
-- **Deployments**: Scheduled or on-demand executions
-  - Support for recurring knowledge updates
+Example plugin:
 
-## Docker Compose Integration
+```python
+from oioio_mcp_agent.core import SearchPlugin, register_plugin
 
-The project includes a Docker Compose configuration that supports:
-
-- MCP Brave Search server
-- Agent container with proper environment
-- Optional Prefect server for local development
-
-```bash
-# Run with Prefect server
-docker-compose --profile prefect up
-
-# Run the agent in a container
-docker-compose --profile agent up
+@register_plugin
+class CustomSearchPlugin(SearchPlugin):
+    plugin_name = "custom_search"
+    plugin_type = "search"
+    
+    def search(self, query, max_results=10):
+        # Custom search implementation
+        pass
 ```
 
-## RAG Implementation
-
-The agent uses a three-step RAG process for knowledge accumulation:
-
-1. **Generate Search Terms**: Uses LLM to generate effective search terms for a knowledge gap
-2. **Perform Web Searches**: Queries the MCP Brave Search server for relevant information
-3. **Compile Knowledge**: Uses LLM to synthesize search results into knowledge documents with citations
+See the [Plugin Development Guide](docs/howto/plugins.md) for more details.
 
 ## Environment Variables
 
-- `OPENROUTER_API_KEY`: API key for OpenRouter
-- `MCP_SERVER_URL`: URL for the MCP Brave Search server
-- `MCP_KNOWLEDGE_DIR`: Directory to store knowledge files
-- `MCP_LLM_MODEL`: LLM model to use with OpenRouter (default: gemini-2.0-flash-lite)
+Secret keys and configuration overrides can be specified in a `.env` file:
+
+```
+# Secret keys
+OPENROUTER_API_KEY=your_api_key_here
+
+# Configuration overrides
+MCP_ENV=dev
+MCP_CORE__LOG_LEVEL=DEBUG
+```
+
+## Documentation
+
+- [Configuration Guide](docs/howto/configuration.md)
+- [Plugin Development Guide](docs/howto/plugins.md)
+- [Scheduling Guide](docs/howto/scheduling.md)
 
 ## GitHub Pages Demo
 
-This repository is set up with GitHub Pages to provide a demonstration site. You can visit the demo site at [https://nkbud.github.io/oioio-ai](https://nkbud.github.io/oioio-ai).
+Visit the demo site at [https://nkbud.github.io/oioio-ai](https://nkbud.github.io/oioio-ai)
