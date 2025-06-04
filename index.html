@@ -3,52 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>oioio-ai GitHub Pages</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 800px;
-            padding: 2rem;
-            text-align: center;
-            background-color: white;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            border-radius: 5px;
-        }
-        h1 {
-            color: #333;
-        }
-        p {
-            color: #666;
-        }
-        .github-link {
-            margin-top: 2rem;
-        }
-        .github-link a {
-            color: #0366d6;
-            text-decoration: none;
-        }
-        .github-link a:hover {
-            text-decoration: underline;
-        }
-    </style>
+    <title>OIOIO AI - Intelligent Assistant</title>
+    <meta name="description" content="OIOIO AI is a modern, intelligent assistant application featuring a clean chat interface and advanced AI capabilities.">
+    <meta name="keywords" content="AI, artificial intelligence, chat, assistant, oioio">
+    <meta name="author" content="OIOIO AI Team">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://nkbud.github.io/oioio-ai/">
+    <meta property="og:title" content="OIOIO AI - Intelligent Assistant">
+    <meta property="og:description" content="Experience the power of AI with OIOIO's modern chat interface and intelligent responses.">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://nkbud.github.io/oioio-ai/">
+    <meta property="twitter:title" content="OIOIO AI - Intelligent Assistant">
+    <meta property="twitter:description" content="Experience the power of AI with OIOIO's modern chat interface and intelligent responses.">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Welcome to the oioio-ai GitHub Pages Demo!</h1>
-        <p>This page demonstrates the GitHub Pages feature for the oioio-ai project.</p>
-        <div class="github-link">
-            <a href="https://github.com/nkbud/oioio-ai" target="_blank">Visit our GitHub Repository</a>
-        </div>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <a href="#" class="logo">OIOIO AI</a>
+                <div class="header-actions">
+                    <div class="chat-status">
+                        <div class="status-indicator" id="status-indicator"></div>
+                        <span id="chat-status">Ready</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Welcome Screen -->
+            <div id="welcome-screen" class="welcome-screen">
+                <div class="welcome-icon">🤖</div>
+                <h1 class="welcome-title">Welcome to OIOIO AI</h1>
+                <p class="welcome-subtitle">
+                    Your intelligent assistant is ready to help with questions, tasks, creative projects, and more.
+                    Start a conversation below or try one of these quick actions.
+                </p>
+                
+                <div class="quick-actions">
+                    <button class="quick-action">Tell me about yourself</button>
+                    <button class="quick-action">How can you help me?</button>
+                    <button class="quick-action">What are your capabilities?</button>
+                    <button class="quick-action">Help me brainstorm ideas</button>
+                </div>
+            </div>
+
+            <!-- Chat Interface -->
+            <div id="chat-container" class="chat-container hidden">
+                <!-- Chat Header -->
+                <div class="chat-header">
+                    <h2 class="chat-title">Chat with OIOIO AI</h2>
+                    <button class="clear-chat" onclick="window.oioioApp?.clearHistory()" title="Clear conversation">
+                        🗑️
+                    </button>
+                </div>
+
+                <!-- Messages Container -->
+                <div id="chat-messages" class="chat-messages" role="log" aria-label="Chat messages" aria-live="polite">
+                    <!-- Messages will be inserted here dynamically -->
+                </div>
+
+                <!-- Chat Input -->
+                <div class="chat-input-container">
+                    <form id="chat-form" class="chat-input-form" role="form" aria-label="Send message">
+                        <textarea 
+                            id="chat-input" 
+                            class="chat-input" 
+                            placeholder="Type your message here... (Press Enter to send, Shift+Enter for new line)"
+                            rows="1"
+                            maxlength="4000"
+                            aria-label="Message input"
+                            required
+                        ></textarea>
+                        <button 
+                            id="send-button" 
+                            type="submit" 
+                            class="send-button"
+                            aria-label="Send message"
+                        >
+                            Send
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </main>
     </div>
+
+    <!-- Scripts -->
+    <script src="js/app.js"></script>
+    
+    <!-- Analytics placeholder (can be configured later) -->
+    <script>
+        // Optional: Add analytics tracking here
+        console.log('OIOIO AI Application Loaded');
+    </script>
 </body>
 </html>
