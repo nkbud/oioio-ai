@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title | default("OIOIO MCP Agent") }}</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+    <!-- Alpine.js for lightweight client-side interactions -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    {% if current_user %}
+    <header class="bg-indigo-700 text-white">
+        {% include "components/navbar.html" %}
+    </header>
+    {% endif %}
+
+    <main class="container mx-auto px-4 py-8">
+        {% block content %}
+        <!-- Page content will go here -->
+        {% endblock %}
+    </main>
+
+    <footer class="bg-gray-800 text-white py-6 mt-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between">
+                <div>
+                    <h3 class="font-bold text-lg mb-2">OIOIO MCP Agent</h3>
+                    <p class="text-gray-300">Autonomous MCP Server Knowledge Accumulation</p>
+                </div>
+                <div class="mt-4 md:mt-0">
+                    <p class="text-gray-300">&copy; {{ now.year }} OIOIO AI. All rights reserved.</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Additional scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

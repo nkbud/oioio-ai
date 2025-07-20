@@ -1,0 +1,23 @@
+version: "1.0"
+
+# Production environment overrides
+core:
+  log_level: INFO
+  # Use absolute paths in production
+  knowledge_dir: /data/knowledge
+  checkpoint_dir: /data/prefect
+
+# More robust LLM configuration for production
+llm:
+  model: gemini-2.0-pro
+  timeout: 60  # Increase timeout for production
+  
+# Production Docker configuration
+docker:
+  services:
+    - name: brave-search
+      image: mcp/brave-search:stable
+      port: 8080
+      environment:
+        LOG_LEVEL: info
+        CACHE_SIZE: "512M"

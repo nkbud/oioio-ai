@@ -1,0 +1,102 @@
+name: Publish Package
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install uv
+      run: |
+        pip install --upgrade pip
+        pip install uv
+    
+    - name: Build package
+      run: |
+        uv pip install build
+        python -m build
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+
+  deploy_dev:
+    name: Deploy to Development
+    needs: publish
+    runs-on: ubuntu-latest
+    if: contains(github.ref, 'beta') || contains(github.ref, 'alpha') || contains(github.ref, 'rc')
+    environment: development
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.0.0
+    
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+    
+    - name: Deploy to Dev Environment
+      working-directory: ./terraform/environments/dev
+      env:
+        TF_VAR_database_password: ${{ secrets.DATABASE_PASSWORD }}
+        TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+        TF_VAR_session_secret: ${{ secrets.SESSION_SECRET }}
+        TF_VAR_openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+        TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+      run: |
+        terraform init
+        terraform apply -auto-approve
+
+  deploy_prod:
+    name: Deploy to Production
+    needs: publish
+    runs-on: ubuntu-latest
+    if: "!contains(github.ref, 'beta') && !contains(github.ref, 'alpha') && !contains(github.ref, 'rc')"
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.0.0
+    
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+    
+    - name: Deploy to Production Environment
+      working-directory: ./terraform/environments/prod
+      env:
+        TF_VAR_database_password: ${{ secrets.DATABASE_PASSWORD }}
+        TF_VAR_jwt_secret: ${{ secrets.JWT_SECRET }}
+        TF_VAR_session_secret: ${{ secrets.SESSION_SECRET }}
+        TF_VAR_google_client_id: ${{ secrets.GOOGLE_CLIENT_ID }}
+        TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        TF_VAR_openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+        TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+        TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+      run: |
+        terraform init
+        terraform apply -auto-approve

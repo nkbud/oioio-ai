@@ -1,0 +1,1 @@
+"""Knowledge Agent package for autonomous MCP server knowledge accumulation."""
